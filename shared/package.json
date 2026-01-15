@@ -1,0 +1,14 @@
+{
+  "name": "@flowlink/shared",
+  "version": "1.0.0",
+  "description": "Shared protocol definitions for FlowLink",
+  "main": "dist/protocol.js",
+  "types": "dist/protocol.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
+  <title>FlowLink Agent</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 400px;
+      margin: 0 auto;
+    }
+    
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    h2 {
+      margin-bottom: 15px;
+      color: #333;
+      font-size: 18px;
+    }
+    
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    
+    .status.disconnected {
+      background: #fee;
+      color: #c33;
+    }
+    
+    .status.connected {
+      background: #efe;
+      color: #3c3;
+    }
+    
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    button:hover {
+      background: #0056b3;
+    }
+    
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .device-list {
+      list-style: none;
+    }
+    
+    .device-item {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .device-info {
+      flex: 1;
+    }
+    
+    .device-name {
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .device-meta {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    }
+    
+    .device-item button {
+      width: auto;
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    
+    .session-info {
+      padding: 10px;
+      background: #e3f2fd;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h2>FlowLink Agent</h2>
+      <div id="status" class="status disconnected">Disconnected</div>
+      <input type="text" id="serverUrl" placeholder="Server URL (ws://localhost:8080)" value="ws://localhost:8080">
+      <button id="connectBtn">Connect</button>
+    </div>
+    
+    <div class="card" id="devicesCard" style="display: none;">
+      <h2>Available Devices</h2>
+      <ul id="deviceList" class="device-list"></ul>
+    </div>
+    
+    <div class="card" id="sessionCard" style="display: none;">
+      <h2>Active Session</h2>
+      <div class="session-info">
+        <div>Session ID: <span id="sessionId"></span></div>
+      </div>
+      <button id="endSessionBtn">End Session</button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    
+    let connected = false;
+    let deviceId = null;
+    let currentSession = null;
+    let peerConnection = null;
+    let dataChannel = null;
+    
+    const statusEl = document.getElementById('status');
+    const connectBtn = document.getElementById('connectBtn');
+    const serverUrlInput = document.getElementById('serverUrl');
+    const devicesCard = document.getElementById('devicesCard');
+    const deviceList = document.getElementById('deviceList');
+    const sessionCard = document.getElementById('sessionCard');
+    const sessionIdEl = document.getElementById('sessionId');
+    const endSessionBtn = document.getElementById('endSessionBtn');
+    
+    connectBtn.addEventListener('click', async () => {
+      if (!connected) {
+        const serverUrl = serverUrlInput.value;
+        const result = await ipcRenderer.invoke('connect-server', serverUrl);
+        
+        if (result.success) {
+          connected = true;
+          updateStatus('Connected', true);
+          connectBtn.textContent = 'Disconnect';
+          serverUrlInput.disabled = true;
+        } else {
+          alert('Connection failed: ' + result.error);
+        }
+      } else {
+        await ipcRenderer.invoke('disconnect-server');
+        connected = false;
+        updateStatus('Disconnected', false);
+        connectBtn.textContent = 'Connect';
+        serverUrlInput.disabled = false;
+        devicesCard.style.display = 'none';
+      }
+    });
+    
+    endSessionBtn.addEventListener('click', async () => {
+      if (currentSession) {
+        await ipcRenderer.invoke('end-session', currentSession);
+        if (peerConnection) {
+          peerConnection.close();
+          peerConnection = null;
+        }
+      }
+    });
+    
+    ipcRenderer.on('device-registered', (event, id) => {
+      deviceId = id;
+      updateStatus(`Connected (ID: ${id.substring(0, 8)}...)`, true);
+    });
+    
+    ipcRenderer.on('device-list', (event, devices) => {
+      deviceList.innerHTML = '';
+      
+      const otherDevices = devices.filter(d => d.id !== deviceId);
+      
+      if (otherDevices.length > 0) {
+        devicesCard.style.display = 'block';
+        
+        otherDevices.forEach(device => {
+          const li = document.createElement('li');
+          li.className = 'device-item';
+          
+          li.innerHTML = `
+            <div class="device-info">
+              <div class="device-name">${device.name}</div>
+              <div class="device-meta">${device.type} • ${device.platform}</div>
+            </div>
+            <button onclick="requestSession('${device.id}')">Connect</button>
+          `;
+          
+          deviceList.appendChild(li);
+        });
+      } else {
+        devicesCard.style.display = 'none';
+      }
+    });
+    
+    ipcRenderer.on('session-started', async (event, sessionId) => {
+      console.log('Session started:', sessionId);
+      currentSession = sessionId;
+      sessionIdEl.textContent = sessionId.substring(0, 16) + '...';
+      sessionCard.style.display = 'block';
+      
+      // Start WebRTC peer connection
+      try {
+        await setupPeerConnection(sessionId);
+      } catch (error) {
+        console.error('Failed to setup peer connection:', error);
+        // Session card still visible so user can end session
+      }
+    });
+    
+    ipcRenderer.on('session-ended', (event, sessionId) => {
+      currentSession = null;
+      sessionCard.style.display = 'none';
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+    });
+    
+    async function setupPeerConnection(sessionId) {
+      try {
+        console.log('Setting up peer connection for session:', sessionId);
+        
+        // Check if RTCPeerConnection is available
+        if (typeof RTCPeerConnection === 'undefined') {
+          console.error('RTCPeerConnection is not available!');
+          alert('WebRTC is not available. Please restart the application.');
+          return;
+        }
+        
+        // Get screen sources FIRST
+        console.log('Getting screen sources...');
+        const sources = await ipcRenderer.invoke('get-sources');
+        if (!sources || sources.length === 0) {
+          console.error('No screen sources available');
+          alert('No screen sources available. Please check screen recording permissions.');
+          return;
+        }
+        
+        console.log('Got screen sources:', sources.length);
+        
+        // Check if navigator.mediaDevices is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          console.error('getUserMedia is not available');
+          alert('Screen capture is not available. Please restart the application.');
+          return;
+        }
+        
+        // Get screen stream BEFORE creating peer connection
+        console.log('Requesting screen stream...');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sources[0].id,
+              minWidth: 1280,
+              maxWidth: 1920,
+              minHeight: 720,
+              maxHeight: 1080,
+              maxFrameRate: 30
+            }
+          }
+        });
+        
+        console.log('Got screen stream with', stream.getTracks().length, 'tracks');
+        
+        // NOW create peer connection with stream ready
+        peerConnection = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        });
+        
+        console.log('Peer connection created');
+        
+        // Add tracks to peer connection
+        stream.getTracks().forEach(track => {
+          console.log('Adding track:', track.kind, track.label);
+          peerConnection.addTrack(track, stream);
+        });
+        
+        // Create data channel for control events
+        dataChannel = peerConnection.createDataChannel('control');
+        dataChannel.onopen = () => {
+          console.log('Data channel opened');
+        };
+        dataChannel.onclose = () => {
+          console.log('Data channel closed');
+        };
+        dataChannel.onerror = (error) => {
+          console.error('Data channel error:', error);
+        };
+        dataChannel.onmessage = (event) => {
+          try {
+            const controlEvent = JSON.parse(event.data);
+            ipcRenderer.send('peer-control-event', controlEvent);
+          } catch (error) {
+            console.error('Error parsing control event:', error);
+          }
+        };
+        
+        // Handle ICE candidates
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            console.log('Sending ICE candidate');
+            ipcRenderer.send('peer-ice-candidate', {
+              sessionId,
+              candidate: event.candidate
+            });
+          } else {
+            console.log('All ICE candidates sent');
+          }
+        };
+        
+        peerConnection.onconnectionstatechange = () => {
+          console.log('Connection state:', peerConnection.connectionState);
+          if (peerConnection.connectionState === 'failed') {
+            console.error('Connection failed!');
+            alert('Connection failed. Please try again.');
+          }
+        };
+        
+        peerConnection.oniceconnectionstatechange = () => {
+          console.log('ICE connection state:', peerConnection.iceConnectionState);
+          if (peerConnection.iceConnectionState === 'failed') {
+            console.error('ICE connection failed!');
+          }
+        };
+        
+        peerConnection.onicegatheringstatechange = () => {
+          console.log('ICE gathering state:', peerConnection.iceGatheringState);
+        };
+        
+        // Create and send offer
+        console.log('Creating offer...');
+        const offer = await peerConnection.createOffer({
+          offerToReceiveAudio: false,
+          offerToReceiveVideo: false
+        });
+        
+        console.log('Setting local description...');
+        await peerConnection.setLocalDescription(offer);
+        
+        console.log('Sending offer to signaling server');
+        ipcRenderer.send('peer-offer', {
+          sessionId,
+          sdp: offer.sdp
+        });
+        
+        console.log('Peer connection setup complete');
+        
+      } catch (error) {
+        console.error('Error setting up peer connection:', error);
+        alert('Failed to start screen sharing: ' + error.message + '\n\nPlease check:\n1. Screen recording permission granted\n2. Application has necessary permissions\n3. Try restarting the application');
+      }
+    }
+    
+    // Handle answer from remote peer
+    ipcRenderer.on('peer-answer', async (event, data) => {
+      if (peerConnection && data.sessionId === currentSession) {
+        console.log('Received answer, setting remote description');
+        try {
+          await peerConnection.setRemoteDescription({
+            type: 'answer',
+            sdp: data.sdp
+          });
+          console.log('Remote description set');
+        } catch (error) {
+          console.error('Error setting remote description:', error);
+        }
+      }
+    });
+    
+    // Handle ICE candidates from remote peer
+    ipcRenderer.on('peer-ice-candidate', async (event, data) => {
+      if (peerConnection && data.sessionId === currentSession) {
+        console.log('Received ICE candidate');
+        try {
+          await peerConnection.addIceCandidate(data.candidate);
+          console.log('ICE candidate added');
+        } catch (error) {
+          console.error('Error adding ICE candidate:', error);
+        }
+      }
+    });
+    
+    function updateStatus(text, isConnected) {
+      statusEl.textContent = text;
+      statusEl.className = 'status ' + (isConnected ? 'connected' : 'disconnected');
+    }
+    
+    async function requestSession(targetDeviceId) {
+      const result = await ipcRenderer.invoke('request-session', targetDeviceId);
+      if (!result.success) {
+        alert('Failed to request session: ' + result.error);
+      }
+    }
+  </script>
+</body>
+</html>

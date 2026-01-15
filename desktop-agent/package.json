@@ -1,0 +1,45 @@
+{
+  "name": "@flowlink/desktop-agent",
+  "version": "1.0.0",
+  "description": "FlowLink desktop agent for screen sharing",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "electron .",
+    "dev": "tsc && electron .",
+    "package": "electron-builder"
+  },
+  "build": {
+    "appId": "com.flowlink.desktop-agent",
+    "productName": "FlowLink Agent",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "ui/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "dependencies": {
+    "robotjs": "^0.6.0",
+    "smart-buffer": "^4.2.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9",
+    "typescript": "^5.3.3"
+  }
+}
