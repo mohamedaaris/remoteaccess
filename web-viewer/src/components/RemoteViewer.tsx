@@ -10,9 +10,12 @@ interface RemoteViewerProps {
 function RemoteViewer({ stream, dataChannel, onDisconnect }: RemoteViewerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const keyboardInputRef = useRef<HTMLInputElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showKeyboard, setShowKeyboard] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'timeout'>('connecting');
   const connectionTimeoutRef = useRef<number | null>(null);
+  const lastTouchRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -108,6 +111,120 @@ function RemoteViewer({ stream, dataChannel, onDisconnect }: RemoteViewerProps) 
     });
   };
 
+  // Touch event handlers for mobile
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!videoRef.current || e.touches.length === 0) return;
+    
+    const touch = e.touches[0];
+    const rect = videoRef.current.getBoundingClientRect();
+    const x = Math.floor((touch.clientX - rect.left) / rect.width * videoRef.current.videoWidth);
+    const y = Math.floor((touch.clientY - rect.top) / rect.height * videoRef.current.videoHeight);
+
+    lastTouchRef.current = { x, y, time: Date.now() };
+
+    // Send mouse move to position cursor
+    sendControlEvent({
+      type: 'mouse_move',
+      timestamp: Date.now(),
+      x,
+      y
+    });
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!videoRef.current || e.touches.length === 0) return;
+    e.preventDefault();
+    
+    const touch = e.touches[0];
+    const rect = videoRef.current.getBoundingClientRect();
+    const x = Math.floor((touch.clientX - rect.left) / rect.width * videoRef.current.videoWidth);
+    const y = Math.floor((touch.clientY - rect.top) / rect.height * videoRef.current.videoHeight);
+
+    sendControlEvent({
+      type: 'mouse_move',
+      timestamp: Date.now(),
+      x,
+      y
+    });
+  };
+
+  const handleTouchEnd = (_e: React.TouchEvent) => {
+    if (!videoRef.current || !lastTouchRef.current) return;
+    
+    const touchDuration = Date.now() - lastTouchRef.current.time;
+    
+    // If touch was quick (< 200ms), treat as click
+    if (touchDuration < 200) {
+      sendControlEvent({
+        type: 'mouse_click',
+        timestamp: Date.now(),
+        button: 'left',
+        action: 'click',
+        x: lastTouchRef.current.x,
+        y: lastTouchRef.current.y
+      });
+    }
+    
+    lastTouchRef.current = null;
+  };
+
+  // Keyboard input handler for mobile
+  const handleKeyboardInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (value.length > 0) {
+      const lastChar = value[value.length - 1];
+      
+      // Send each character as a key event
+      sendControlEvent({
+        type: 'key_event',
+        timestamp: Date.now(),
+        action: 'press',
+        key: lastChar,
+        code: `Key${lastChar.toUpperCase()}`,
+        modifiers: {
+          ctrl: false,
+          alt: false,
+          shift: lastChar === lastChar.toUpperCase() && lastChar !== lastChar.toLowerCase(),
+          meta: false
+        }
+      });
+      
+      // Clear input for next character
+      e.target.value = '';
+    }
+  };
+
+  const handleKeyboardKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Handle special keys
+    if (e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Tab' || e.key === 'Escape') {
+      e.preventDefault();
+      
+      sendControlEvent({
+        type: 'key_event',
+        timestamp: Date.now(),
+        action: 'press',
+        key: e.key,
+        code: e.code,
+        modifiers: {
+          ctrl: e.ctrlKey,
+          alt: e.altKey,
+          shift: e.shiftKey,
+          meta: e.metaKey
+        }
+      });
+    }
+  };
+
+  const toggleKeyboard = () => {
+    setShowKeyboard(!showKeyboard);
+    if (!showKeyboard) {
+      // Focus the input when showing keyboard
+      setTimeout(() => {
+        keyboardInputRef.current?.focus();
+      }, 100);
+    }
+  };
+
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
 
@@ -136,14 +253,68 @@ function RemoteViewer({ stream, dataChannel, onDisconnect }: RemoteViewerProps) 
           </span>
         </div>
         <div className="toolbar-right">
-          <button onClick={toggleFullscreen} title="Toggle Fullscreen">
+          <button 
+            onClick={toggleKeyboard} 
+            className={showKeyboard ? 'keyboard-btn active' : 'keyboard-btn'}
+            title="Toggle Keyboard"
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              toggleKeyboard();
+            }}
+          >
+            ⌨
+          </button>
+          <button 
+            onClick={toggleFullscreen} 
+            title="Toggle Fullscreen"
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              toggleFullscreen();
+            }}
+          >
             {isFullscreen ? '⛶' : '⛶'}
           </button>
-          <button onClick={onDisconnect} className="end-session-btn" title="End Session">
+          <button 
+            onClick={onDisconnect} 
+            className="end-session-btn" 
+            title="End Session"
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDisconnect();
+            }}
+          >
             End Session
           </button>
         </div>
       </div>
+      
+      {showKeyboard && (
+        <div className="keyboard-input-container">
+          <input
+            ref={keyboardInputRef}
+            type="text"
+            className="keyboard-input"
+            placeholder="Type here to send to remote desktop..."
+            onChange={handleKeyboardInput}
+            onKeyDown={handleKeyboardKeyDown}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="false"
+          />
+          <button 
+            className="keyboard-close-btn"
+            onClick={toggleKeyboard}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              toggleKeyboard();
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       
       <div className="video-container">
         {stream ? (
@@ -155,6 +326,9 @@ function RemoteViewer({ stream, dataChannel, onDisconnect }: RemoteViewerProps) 
             onClick={handleMouseClick}
             onContextMenu={(e) => e.preventDefault()}
             onWheel={handleWheel}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
           />
         ) : (
           <div className="loading">

@@ -47,14 +47,85 @@
   background: #4a4a4a;
 }
 
+.toolbar button:active {
+  background: #5a5a5a;
+  transform: scale(0.95);
+}
+
+.toolbar .keyboard-btn {
+  font-size: 20px;
+  padding: 8px 12px;
+}
+
+.toolbar .keyboard-btn.active {
+  background: #2196f3;
+}
+
+.toolbar .keyboard-btn.active:hover {
+  background: #1976d2;
+}
+
 .toolbar .end-session-btn {
   background: #dc3545;
   padding: 8px 16px;
   font-size: 14px;
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .toolbar .end-session-btn:hover {
   background: #c82333;
+}
+
+.toolbar .end-session-btn:active {
+  background: #bd2130;
+  transform: scale(0.95);
+}
+
+/* Keyboard input container */
+.keyboard-input-container {
+  position: relative;
+  background: #1a1a1a;
+  padding: 10px;
+  border-bottom: 1px solid #3a3a3a;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.keyboard-input {
+  flex: 1;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #3a3a3a;
+  padding: 10px 15px;
+  border-radius: 4px;
+  font-size: 16px;
+  outline: none;
+}
+
+.keyboard-input:focus {
+  border-color: #2196f3;
+  background: #333;
+}
+
+.keyboard-close-btn {
+  background: #dc3545;
+  color: #fff;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: bold;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.keyboard-close-btn:active {
+  background: #c82333;
+  transform: scale(0.95);
 }
 
 .video-container {
@@ -70,6 +141,9 @@
   max-height: 100%;
   object-fit: contain;
   cursor: default;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .loading {
@@ -95,4 +169,55 @@
 
 .loading p {
   font-size: 14px;
+}
+
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .toolbar {
+    height: 60px;
+    padding: 0 10px;
+  }
+
+  .toolbar button {
+    padding: 10px 14px;
+    font-size: 18px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .toolbar .end-session-btn {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  .status-indicator {
+    font-size: 12px;
+  }
+
+  .keyboard-input-container {
+    padding: 15px 10px;
+  }
+
+  .keyboard-input {
+    font-size: 16px;
+    padding: 12px 15px;
+  }
+
+  .keyboard-close-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Prevent text selection and touch callouts on mobile */
+.remote-viewer * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.keyboard-input {
+  -webkit-user-select: text;
+  user-select: text;
 }
